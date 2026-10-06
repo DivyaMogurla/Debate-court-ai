@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import requests
 from dotenv import load_dotenv
@@ -20,8 +21,7 @@ class LLMClient:
         temperature: float = 0.7,
     ):
         self.provider = (
-            provider
-            or os.getenv("LLM_PROVIDER", "ollama")
+            provider or os.getenv("LLM_PROVIDER", "ollama")
         ).lower()
 
         if self.provider == "gemini":
@@ -29,7 +29,7 @@ class LLMClient:
                 model
                 or os.getenv(
                     "GEMINI_MODEL",
-                    "gemini-3.8-flash",
+                    "gemini-3.5-flash",
                 )
             )
 
@@ -54,19 +54,12 @@ class LLMClient:
         system: str,
         prompt: str,
     ) -> str:
-        """Generate a response from the configured LLM."""
 
         if self.provider == "ollama":
-            return self._ollama_generate(
-                system,
-                prompt,
-            )
+            return self._ollama_generate(system, prompt)
 
         if self.provider == "gemini":
-            return self._gemini_generate(
-                system,
-                prompt,
-            )
+            return self._gemini_generate(system, prompt)
 
         raise ValueError(
             f"Unsupported provider: {self.provider}"
@@ -77,7 +70,6 @@ class LLMClient:
         system: str,
         prompt: str,
     ) -> str:
-        """Send the prompt to the local Ollama server."""
 
         host = os.getenv(
             "OLLAMA_HOST",
@@ -117,7 +109,6 @@ class LLMClient:
         system: str,
         prompt: str,
     ) -> str:
-        """Generate a response using Google Gemini."""
 
         from google import genai
         from google.genai import types
@@ -129,25 +120,49 @@ class LLMClient:
                 "GEMINI_API_KEY is not configured."
             )
 
-        client = genai.Client(
-            api_key=api_key,
-        )
+        client = genai.Client(api_key=api_key)
 
-        response = client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                temperature=self.temperature,
-            ),
-        )
+        last_error = None
 
-        if not response.text:
-            raise ValueError(
-                "Gemini returned an empty response."
-            )
+        for attempt in range(3):
 
-        return response.text.strip()
+            try:
+                response = client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system,
+                        temperature=self.temperature,
+                    ),
+                )
+
+                if not response.text:
+                    raise ValueError(
+                        "Gemini returned an empty response."
+                    )
+
+                return response.text.strip()
+
+            except Exception as error:
+
+                last_error = error
+
+                error_text = str(error)
+
+                if (
+                    "503" not in error_text
+                    and "UNAVAILABLE" not in error_text.upper()
+                    and "429" not in error_text
+                ):
+                    raise
+
+                if attempt < 2:
+                    time.sleep(5 * (attempt + 1))
+
+        raise RuntimeError(
+            "Gemini is temporarily unavailable after 3 attempts. "
+            "Please try again in a few minutes."
+        ) from last_error
 
 
 class Proponent:
@@ -192,10 +207,7 @@ Previous debate:
 Give the Proponent's argument for this round.
 """
 
-        return self.client.generate(
-            system,
-            prompt,
-        )
+        return self.client.generate(system, prompt)
 
 
 class Opponent:
@@ -240,10 +252,7 @@ Previous debate:
 Give the Opponent's counterargument for this round.
 """
 
-        return self.client.generate(
-            system,
-            prompt,
-        )
+        return self.client.generate(system, prompt)
 
 
 class Judge:
@@ -290,16 +299,12 @@ Full debate transcript:
 Give the final verdict.
 """
 
-        result = self.client.generate(
-            system,
-            prompt,
-        )
+        result = self.client.generate(system, prompt)
 
         return parse_verdict(result)
 
 
 def format_transcript(transcript: list) -> str:
-    """Convert the debate transcript into readable text."""
 
     if not transcript:
         return "No previous arguments."
@@ -307,20 +312,10 @@ def format_transcript(transcript: list) -> str:
     lines = []
 
     for item in transcript:
-        speaker = item.get(
-            "speaker",
-            "Unknown",
-        )
 
-        round_number = item.get(
-            "round",
-            "?",
-        )
-
-        text = item.get(
-            "text",
-            "",
-        )
+        speaker = item.get("speaker", "Unknown")
+        round_number = item.get("round", "?")
+        text = item.get("text", "")
 
         lines.append(
             f"Round {round_number} - {speaker}:\n{text}"
@@ -330,7 +325,6 @@ def format_transcript(transcript: list) -> str:
 
 
 def parse_verdict(text: str) -> dict:
-    """Convert the Judge response into a dictionary."""
 
     verdict = "Undecided"
     score = 50
@@ -344,10 +338,7 @@ def parse_verdict(text: str) -> dict:
 
         if upper.startswith("VERDICT:"):
 
-            value = clean.split(
-                ":",
-                1,
-            )[1].strip()
+            value = clean.split(":", 1)[1].strip()
 
             if "PROPONENT" in value.upper():
                 verdict = "Proponent"
@@ -357,42 +348,22 @@ def parse_verdict(text: str) -> dict:
 
         elif upper.startswith("SCORE:"):
 
-            value = clean.split(
-                ":",
-                1,
-            )[1].strip()
+            value = clean.split(":", 1)[1].strip()
 
             try:
-                score = int(
-                    float(value)
-                )
-
-                score = max(
-                    0,
-                    min(
-                        100,
-                        score,
-                    ),
-                )
+                score = int(float(value))
+                score = max(0, min(100, score))
 
             except ValueError:
                 score = 50
 
         elif upper.startswith("REASONING:"):
 
-            reasoning = clean.split(
-                ":",
-                1,
-            )[1].strip()
+            reasoning = clean.split(":", 1)[1].strip()
 
-        elif upper.startswith(
-            "WINNING_ARGUMENT:"
-        ):
+        elif upper.startswith("WINNING_ARGUMENT:"):
 
-            winning_argument = clean.split(
-                ":",
-                1,
-            )[1].strip()
+            winning_argument = clean.split(":", 1)[1].strip()
 
     return {
         "verdict": verdict,
@@ -408,7 +379,6 @@ def build_agents(
     model: str | None = None,
     temperature: float = 0.7,
 ):
-    """Create the three Debate Court agents."""
 
     client = LLMClient(
         provider=provider,
@@ -420,8 +390,4 @@ def build_agents(
     opponent = Opponent(client)
     judge = Judge(client)
 
-    return (
-        proponent,
-        opponent,
-        judge,
-    )
+    return proponent, opponent, judge
