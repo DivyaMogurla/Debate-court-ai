@@ -1,3 +1,4 @@
+
 """Streamlit UI for Debate Court."""
 
 import json
@@ -25,7 +26,6 @@ st.caption(
 with st.sidebar:
     st.header("Settings")
 
-    # Select the LLM provider
     provider = st.selectbox(
         "LLM Provider",
         ["gemini", "ollama"],
@@ -34,9 +34,10 @@ with st.sidebar:
     if provider == "gemini":
         st.info("LLM Provider: Gemini")
 
+        # Fixed Gemini model
         model = st.text_input(
             "Gemini Model",
-            value="gemini-3.8-flash",
+            value="gemini-3.5-flash-lite",
         )
 
     else:
@@ -268,3 +269,4 @@ if st.button(
 
         mime="application/json",
     )
+
