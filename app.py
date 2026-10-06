@@ -1,4 +1,3 @@
-
 """Streamlit UI for Debate Court."""
 
 import json
@@ -26,15 +25,31 @@ st.caption(
 with st.sidebar:
     st.header("Settings")
 
-    # Ollama is used as the LLM provider.
-    provider = "ollama"
-
-    st.info("LLM Provider: Ollama")
-
-    model = st.text_input(
-        "Ollama Model",
-        value="llama3.2",
+    # Select the LLM provider
+    provider = st.selectbox(
+        "LLM Provider",
+        ["gemini", "ollama"],
     )
+
+    if provider == "gemini":
+        st.info("LLM Provider: Gemini")
+
+        model = st.text_input(
+            "Gemini Model",
+            value="gemini-3.8-flash",
+        )
+
+    else:
+        st.info("LLM Provider: Ollama")
+
+        model = st.text_input(
+            "Ollama Model",
+            value="llama3.2",
+        )
+
+        st.markdown(
+            "Ollama is running locally on your computer."
+        )
 
     rounds = st.slider(
         "Debate rounds",
@@ -49,10 +64,6 @@ with st.sidebar:
         1.0,
         0.7,
         0.1,
-    )
-
-    st.markdown(
-        "Ollama is running locally on your computer."
     )
 
 
@@ -170,6 +181,7 @@ if st.button(
 
     c1, c2 = st.columns(2)
 
+
     with c1:
         st.metric(
             "Decision",
@@ -178,6 +190,7 @@ if st.button(
                 "Undecided",
             ),
         )
+
 
     with c2:
         st.metric(
@@ -207,6 +220,7 @@ if st.button(
 
 
     st.markdown("### 📜 Debate Transcript")
+
 
     for turn in transcript:
 

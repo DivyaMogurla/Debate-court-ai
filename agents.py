@@ -11,7 +11,7 @@ load_dotenv()
 
 
 class LLMClient:
-    """Thin wrapper around the local Ollama server."""
+    """LLM wrapper supporting Gemini and local Ollama."""
 
     def __init__(
         self,
@@ -19,15 +19,33 @@ class LLMClient:
         model: str | None = None,
         temperature: float = 0.7,
     ):
-        self.provider = provider or os.getenv(
-            "LLM_PROVIDER",
-            "ollama",
-        )
+        self.provider = (
+            provider
+            or os.getenv("LLM_PROVIDER", "ollama")
+        ).lower()
 
-        self.model = model or os.getenv(
-            "OLLAMA_MODEL",
-            "llama3.2",
-        )
+        if self.provider == "gemini":
+            self.model = (
+                model
+                or os.getenv(
+                    "GEMINI_MODEL",
+                    "gemini-2.5-flash",
+                )
+            )
+
+        elif self.provider == "ollama":
+            self.model = (
+                model
+                or os.getenv(
+                    "OLLAMA_MODEL",
+                    "llama3.2",
+                )
+            )
+
+        else:
+            raise ValueError(
+                f"Unsupported provider: {self.provider}"
+            )
 
         self.temperature = temperature
 
@@ -38,15 +56,20 @@ class LLMClient:
     ) -> str:
         """Generate a response from the configured LLM."""
 
-        if self.provider.lower() != "ollama":
-            raise ValueError(
-                f"Unsupported provider: {self.provider}. "
-                "This project currently uses Ollama."
+        if self.provider == "ollama":
+            return self._ollama_generate(
+                system,
+                prompt,
             )
 
-        return self._ollama_generate(
-            system,
-            prompt,
+        if self.provider == "gemini":
+            return self._gemini_generate(
+                system,
+                prompt,
+            )
+
+        raise ValueError(
+            f"Unsupported provider: {self.provider}"
         )
 
     def _ollama_generate(
@@ -54,7 +77,7 @@ class LLMClient:
         system: str,
         prompt: str,
     ) -> str:
-        """Send the prompt to Ollama."""
+        """Send the prompt to the local Ollama server."""
 
         host = os.getenv(
             "OLLAMA_HOST",
@@ -88,6 +111,43 @@ class LLMClient:
         data = response.json()
 
         return data["message"]["content"].strip()
+
+    def _gemini_generate(
+        self,
+        system: str,
+        prompt: str,
+    ) -> str:
+        """Generate a response using Google Gemini."""
+
+        from google import genai
+        from google.genai import types
+
+        api_key = os.getenv("GEMINI_API_KEY")
+
+        if not api_key:
+            raise ValueError(
+                "GEMINI_API_KEY is not configured."
+            )
+
+        client = genai.Client(
+            api_key=api_key,
+        )
+
+        response = client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=self.temperature,
+            ),
+        )
+
+        if not response.text:
+            raise ValueError(
+                "Gemini returned an empty response."
+            )
+
+        return response.text.strip()
 
 
 class Proponent:
@@ -280,7 +340,6 @@ def parse_verdict(text: str) -> dict:
     for line in text.splitlines():
 
         clean = line.strip()
-
         upper = clean.upper()
 
         if upper.startswith("VERDICT:"):
@@ -326,7 +385,9 @@ def parse_verdict(text: str) -> dict:
                 1,
             )[1].strip()
 
-        elif upper.startswith("WINNING_ARGUMENT:"):
+        elif upper.startswith(
+            "WINNING_ARGUMENT:"
+        ):
 
             winning_argument = clean.split(
                 ":",
@@ -356,9 +417,7 @@ def build_agents(
     )
 
     proponent = Proponent(client)
-
     opponent = Opponent(client)
-
     judge = Judge(client)
 
     return (
